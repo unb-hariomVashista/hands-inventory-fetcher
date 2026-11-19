@@ -2,7 +2,7 @@
 
 client_id = "498b4c9996b7f94633de384b466f7908"
 name = "Hands Inventory Management"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://hands-inventory.duckdns.org"
 embedded = true
 
 [access_scopes]
@@ -22,8 +22,10 @@ api_version = "2025-01"
 # topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [
+  "https://hands-inventory.duckdns.org/api/auth",
+  "https://hands-inventory.duckdns.org/auth/callback"
+]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
