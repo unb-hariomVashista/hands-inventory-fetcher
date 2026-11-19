@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: "npm"
 
-      - name: Install All Dependencies (including dev)
+      - name: Install All Dependencies
         run: npm ci
 
       - name: Generate Prisma Client
@@ -29,26 +29,36 @@ jobs:
       - name: Build Production Assets
         run: npm run build
 
-      - name: Deploy Built Artifacts to VPS
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
-          source: "build,public,prisma,package.json,package-lock.json,ecosystem.config.cjs"
-          target: "/mnt/app_extend_storage/apps/handsinventorysync"
-          overwrite: true
+      - name: Deploy to VPS via Native SSH & Rsync
+        env:
+          RAW_HOST: ${{ secrets.VPS_HOST }}
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          # 1. Clean the host variable (remove http://, https://, trailing slashes, or ports)
+          CLEAN_HOST=$(echo "$RAW_HOST" | sed -e 's|^[^/]*//||' -e 's|:[0-9]*$||' -e 's|/.*$||' | tr -d '[:space:]')
+          echo "Target Host: $CLEAN_HOST"
 
-      - name: Install Production Deps & Restart PM2 on VPS
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
-          script: |
+          # 2. Setup SSH Key
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # 3. Add to known hosts
+          ssh-keyscan -H "$CLEAN_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # 4. Sync built files to VPS using rsync
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            build public prisma package.json package-lock.json ecosystem.config.cjs \
+            "$SSH_USER@$CLEAN_HOST:/mnt/app_extend_storage/apps/handsinventorysync/"
+
+          # 5. Run DB sync and start/restart PM2 on VPS
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$SSH_USER@$CLEAN_HOST" "
             cd /mnt/app_extend_storage/apps/handsinventorysync
             npm ci --omit=dev --ignore-engines
             npx prisma db push
             pm2 restart ecosystem.config.cjs || pm2 start ecosystem.config.cjs
+            pm2 save
+          "
